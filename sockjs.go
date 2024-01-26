@@ -40,9 +40,6 @@ func (c *sockJSStompConnection) Close() error {
 }
 
 type sockJSConnectionListener struct {
-	handler           *sockjs.Handler
-	rw                http.ResponseWriter
-	r                 *http.Request
 	connectionChannel chan rawConnResult
 	allowedOrigins    []string
 }
@@ -55,8 +52,6 @@ type rawConnResult struct {
 func NewSockJSConnectionListenerFromExisting(rw http.ResponseWriter, r *http.Request,
 	endpoint string, allowedOrigins []string) (RawConnectionListener, error) {
 	l := &sockJSConnectionListener{
-		rw:                rw,
-		r:                 r,
 		connectionChannel: make(chan rawConnResult),
 		allowedOrigins:    allowedOrigins,
 	}
@@ -71,7 +66,7 @@ func NewSockJSConnectionListenerFromExisting(rw http.ResponseWriter, r *http.Req
 	opts.CheckOrigin = l.checkOrigin
 	opts.WebsocketUpgrader = &upgrader
 
-	l.handler = sockjs.NewHandler(endpoint, opts, func(s sockjs.Session) {
+	handler := sockjs.NewHandler(endpoint, opts, func(s sockjs.Session) {
 		var emptySession sockjs.Session
 		if s != emptySession {
 			sockJSWrapper := NewSockJSWrapper(s)
@@ -87,9 +82,11 @@ func NewSockJSConnectionListenerFromExisting(rw http.ResponseWriter, r *http.Req
 	})
 
 	if strings.Contains(r.URL.Path, "/info") {
-		l.handler.ServeHTTP(rw, r)
+		handler.ServeHTTP(rw, r)
 		return nil, nil
 	}
+
+	go handler.ServeHTTP(rw, r)
 
 	return l, nil
 }
@@ -121,7 +118,6 @@ func (l *sockJSConnectionListener) checkOrigin(r *http.Request) bool {
 }
 
 func (l *sockJSConnectionListener) Accept() (RawConnection, error) {
-	go l.handler.ServeHTTP(l.rw, l.r)
 	cr := <-l.connectionChannel
 	return cr.conn, cr.err
 }
