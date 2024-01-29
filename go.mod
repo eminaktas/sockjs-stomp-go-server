@@ -1,6 +1,6 @@
 module github.com/eminaktas/sockjs-stomp-go-server
 
-go 1.21.6
+go 1.21
 
 require (
 	github.com/go-stomp/stomp/v3 v3.0.5
