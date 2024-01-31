@@ -1,7 +1,6 @@
 package stompserver
 
 import (
-	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -13,7 +12,8 @@ import (
 )
 
 type sockJSStompConnection struct {
-	sockJS *SockJSWrapper
+	sockJS   *SockJSWrapper
+	isClosed chan interface{}
 }
 
 func (c *sockJSStompConnection) ReadFrame() (*frame.Frame, error) {
@@ -36,6 +36,11 @@ func (c *sockJSStompConnection) SetReadDeadline(t time.Time) {
 }
 
 func (c *sockJSStompConnection) Close() error {
+	select {
+	case <-c.isClosed: // already closed
+	default:
+		close(c.isClosed)
+	}
 	return c.sockJS.Close()
 }
 
@@ -50,7 +55,7 @@ type rawConnResult struct {
 }
 
 func NewSockJSConnectionListenerFromExisting(rw http.ResponseWriter, r *http.Request,
-	endpoint string, allowedOrigins []string) (RawConnectionListener, error) {
+	endpoint string, allowedOrigins []string, isClosed chan interface{}) (RawConnectionListener, error) {
 	l := &sockJSConnectionListener{
 		connectionChannel: make(chan rawConnResult),
 		allowedOrigins:    allowedOrigins,
@@ -66,22 +71,23 @@ func NewSockJSConnectionListenerFromExisting(rw http.ResponseWriter, r *http.Req
 	opts.CheckOrigin = l.checkOrigin
 	opts.WebsocketUpgrader = &upgrader
 
-	handler := sockjs.NewHandler(endpoint, opts, func(s sockjs.Session) {
-		var emptySession sockjs.Session
-		if s != emptySession {
-			sockJSWrapper := NewSockJSWrapper(s)
+	// These are not working as expected, this reason disabled.
+	opts.DisableXHRStreaming = true
+	opts.DisableXHR = true
+	opts.DisableEventSource = true
+	opts.DisableHtmlFile = true
+	opts.DisableJSONP = true
 
-			l.connectionChannel <- rawConnResult{
-				conn: &sockJSStompConnection{
-					sockJS: sockJSWrapper,
-				},
-			}
-		} else {
-			l.connectionChannel <- rawConnResult{err: errors.New("empty session")}
+	handler := sockjs.NewHandler(endpoint, opts, func(s sockjs.Session) {
+		l.connectionChannel <- rawConnResult{
+			conn: &sockJSStompConnection{
+				sockJS:   NewSockJSWrapper(s),
+				isClosed: isClosed,
+			},
 		}
 	})
 
-	if strings.Contains(r.URL.Path, "/info") {
+	if strings.Contains(r.URL.Path, "/info") || r.Method == "OPTIONS" {
 		handler.ServeHTTP(rw, r)
 		return nil, nil
 	}
@@ -122,6 +128,7 @@ func (l *sockJSConnectionListener) Accept() (RawConnection, error) {
 	return cr.conn, cr.err
 }
 
+// There is no way to close listener since we are using ServeHTTP here.
 func (l *sockJSConnectionListener) Close() error {
 	return nil
 }

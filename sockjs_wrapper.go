@@ -14,6 +14,8 @@ const (
 type SockJSReader struct {
 	readerBuffer []byte
 	session      sockjs.Session
+	// readDeadline is not used at the moment.
+	readDeadline time.Time
 }
 
 func (r *SockJSReader) Read(p []byte) (int, error) {
@@ -67,6 +69,7 @@ type SockJSWrapper struct {
 }
 
 func (w *SockJSWrapper) SetReadDeadline(t time.Time) error {
+	w.readDeadline = t
 	return nil
 }
 

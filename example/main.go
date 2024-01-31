@@ -17,8 +17,12 @@ func main() {
 }
 
 func newHandler(wr http.ResponseWriter, r *http.Request) {
+	// We need to be notified when the client drops the connection.
+	// This reason we use channel for it.
+	isClosed := make(chan interface{})
+
 	listener, err := stompserver.NewSockJSConnectionListenerFromExisting(
-		wr, r, "/connect", nil)
+		wr, r, "/connect", nil, isClosed)
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -32,26 +36,39 @@ func newHandler(wr http.ResponseWriter, r *http.Request) {
 	defer newEndpoint.Stop()
 
 	// Writes message to STOMP subscribe destination.
-	go func() {
+	go func(newEndpoint Endpoint) {
 		for {
-			msg := []byte("repeated message")
-			time.Sleep(5 * time.Second)
-			newEndpoint.WriteMessage("/topic", msg)
-			fmt.Println("Outgoing message:", string(msg))
+			select {
+			case <-isClosed:
+				fmt.Println("Write message stopped due to client connection gone")
+				return
+			default:
+				msg := []byte("repeated message")
+				newEndpoint.WriteMessage("/topic", msg)
+				fmt.Println("Outgoing message:", string(msg))
+				time.Sleep(5 * time.Second)
+			}
 		}
-	}()
+	}(newEndpoint)
 
 	// Prints the message send via connection.
 	for {
-		msg := newEndpoint.ReadMessage()
-		fmt.Println("Incoming message:", string(msg))
+		select {
+		case <-isClosed:
+			fmt.Println("Message send stopped due to client connection gone")
+			return
+		case msg := <-newEndpoint.ReadMessage():
+			fmt.Println("Incoming message:", string(msg))
+		default:
+			continue
+		}
 	}
 }
 
 type Endpoint interface {
 	Start()
 	Stop()
-	ReadMessage() []byte
+	ReadMessage() chan []byte
 	WriteMessage(string, []byte)
 }
 
@@ -76,16 +93,18 @@ func (e *endpoint) Start() {
 	e.server.OnApplicationRequest(e.bridgeMessage)
 	e.server.OnSubscribeEvent(e.bridgeAddSubscription)
 	e.server.OnUnsubscribeEvent(e.bridgeRemoveSubscription)
+
+	fmt.Println("Connection started by client")
 	e.server.Start()
 }
 
 func (e *endpoint) Stop() {
+	fmt.Println("Connection stopped by client")
 	e.server.Stop()
 }
 
-func (e *endpoint) ReadMessage() []byte {
-	msg := <-e.message
-	return msg
+func (e *endpoint) ReadMessage() chan []byte {
+	return e.message
 }
 
 func (e *endpoint) WriteMessage(destination string, message []byte) {
