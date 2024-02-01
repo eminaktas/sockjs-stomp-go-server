@@ -4,36 +4,49 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	stompserver "github.com/eminaktas/sockjs-stomp-go-server"
 	"github.com/go-stomp/stomp/v3/frame"
+	"github.com/gorilla/websocket"
+	"github.com/igm/sockjs-go/v3/sockjs"
 )
 
+const ConnectionEndpoint = "/connect"
+
+var allowedOrigins = []string{}
+
 func main() {
-	http.HandleFunc("/connect/", newHandler)
+	var upgrader = websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin:     checkOrigin,
+	}
+
+	opts := sockjs.DefaultOptions
+	opts.CheckOrigin = checkOrigin
+	opts.WebsocketUpgrader = &upgrader
+
+	http.Handle("/connect/", sockjs.NewHandler(ConnectionEndpoint, opts, connectionHandler))
 	log.Println("Server started on port: 8085")
 	log.Fatal(http.ListenAndServe(":8085", nil))
 }
 
-func newHandler(wr http.ResponseWriter, r *http.Request) {
+func connectionHandler(s sockjs.Session) {
 	// We need to be notified when the client drops the connection.
 	// This reason we use channel for it.
 	isClosed := make(chan interface{})
 
-	listener, err := stompserver.NewSockJSConnectionListenerFromExisting(
-		wr, r, "/connect", nil, isClosed)
+	listener, err := stompserver.NewSockJSConnectionListenerFromExisting(s, ConnectionEndpoint, isClosed)
 	if err != nil {
 		fmt.Println(err)
-		return
-	}
-	if listener == nil {
 		return
 	}
 
 	newEndpoint := newEndpoint(listener, "/echo/")
 	go newEndpoint.Start()
-	defer newEndpoint.Stop()
 
 	// Writes message to STOMP subscribe destination.
 	go func(newEndpoint Endpoint) {
@@ -63,6 +76,32 @@ func newHandler(wr http.ResponseWriter, r *http.Request) {
 			continue
 		}
 	}
+}
+
+func checkOrigin(r *http.Request) bool {
+	if len(allowedOrigins) == 0 {
+		return true
+	}
+
+	origin := r.Header["Origin"]
+	if len(origin) == 0 {
+		return true
+	}
+	u, err := url.Parse(origin[0])
+	if err != nil {
+		return false
+	}
+	if strings.EqualFold(u.Host, r.Host) {
+		return true
+	}
+
+	for _, allowedOrigin := range allowedOrigins {
+		if strings.EqualFold(u.Host, allowedOrigin) {
+			return true
+		}
+	}
+
+	return false
 }
 
 type Endpoint interface {

@@ -1,7 +1,5 @@
 # sockjs-stomp-go-server
 
-**Work in Progress (WIP)...**
-
 `sockjs-stomp-go-server` is a Go library designed to facilitate the implementation of the STOMP Protocol over sockjs.
 
 ## Usage
