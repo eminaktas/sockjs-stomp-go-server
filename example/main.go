@@ -39,13 +39,13 @@ func connectionHandler(s sockjs.Session) {
 	// This reason we use channel for it.
 	isClosed := make(chan interface{})
 
-	listener, err := stompserver.NewSockJSConnectionListenerFromExisting(s, ConnectionEndpoint, isClosed)
+	listener, err := stompserver.NewSockJSConnectionListenerFromExisting(s, isClosed)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 
-	newEndpoint := newEndpoint(listener, "/echo/")
+	newEndpoint := newEndpoint(listener, []string{"/echo/"})
 	go newEndpoint.Start()
 
 	// Writes message to STOMP subscribe destination.
@@ -116,10 +116,10 @@ type endpoint struct {
 	message chan []byte
 }
 
-func newEndpoint(listener stompserver.RawConnectionListener, appDestinationPrefix string) Endpoint {
+func newEndpoint(listener stompserver.RawConnectionListener, appDestinationPrefix []string) Endpoint {
 	config := stompserver.NewStompConfig(
 		60000, // 6 seconds
-		[]string{"/echo"},
+		appDestinationPrefix,
 	)
 
 	return &endpoint{

@@ -49,8 +49,7 @@ type rawConnResult struct {
 	err  error
 }
 
-func NewSockJSConnectionListenerFromExisting(session sockjs.Session, endpoint string,
-	isClosed chan interface{}) (RawConnectionListener, error) {
+func NewSockJSConnectionListenerFromExisting(session sockjs.Session, isClosed chan interface{}) (RawConnectionListener, error) {
 	l := &sockJSConnectionListener{
 		connectionChannel: make(chan rawConnResult),
 	}
@@ -72,7 +71,7 @@ func (l *sockJSConnectionListener) Accept() (RawConnection, error) {
 	return cr.conn, cr.err
 }
 
-// There is no way to close listener since we are using ServeHTTP here.
+// We can't close listener since don't have access to server itself.
 func (l *sockJSConnectionListener) Close() error {
 	return nil
 }
