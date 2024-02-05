@@ -8,8 +8,8 @@ import (
 )
 
 type sockJSStompConnection struct {
-	sockJS   *SockJSWrapper
-	isClosed chan interface{}
+	sockJS *SockJSWrapper
+	done   chan interface{}
 }
 
 func (c *sockJSStompConnection) ReadFrame() (*frame.Frame, error) {
@@ -33,9 +33,9 @@ func (c *sockJSStompConnection) SetReadDeadline(t time.Time) {
 
 func (c *sockJSStompConnection) Close() error {
 	select {
-	case <-c.isClosed: // already closed
+	case <-c.done: // already closed
 	default:
-		close(c.isClosed)
+		close(c.done)
 	}
 	return c.sockJS.Close()
 }
@@ -49,7 +49,7 @@ type rawConnResult struct {
 	err  error
 }
 
-func NewSockJSConnectionListenerFromExisting(session sockjs.Session, isClosed chan interface{}) (RawConnectionListener, error) {
+func NewSockJSConnectionListenerFromExisting(session sockjs.Session, done chan interface{}) (RawConnectionListener, error) {
 	l := &sockJSConnectionListener{
 		connectionChannel: make(chan rawConnResult),
 	}
@@ -57,8 +57,8 @@ func NewSockJSConnectionListenerFromExisting(session sockjs.Session, isClosed ch
 	go func() {
 		l.connectionChannel <- rawConnResult{
 			conn: &sockJSStompConnection{
-				sockJS:   NewSockJSWrapper(session),
-				isClosed: isClosed,
+				sockJS: NewSockJSWrapper(session),
+				done:   done,
 			},
 		}
 	}()

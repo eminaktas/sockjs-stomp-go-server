@@ -10,15 +10,18 @@ import (
 
 	stompserver "github.com/eminaktas/sockjs-stomp-go-server"
 	"github.com/go-stomp/stomp/v3/frame"
+	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/igm/sockjs-go/v3/sockjs"
 )
 
-const ConnectionEndpoint = "/connect"
+const ConnectionEndpoint = "/local/ws/connect"
 
 var allowedOrigins = []string{}
 
 func main() {
+	r := mux.NewRouter()
+
 	var upgrader = websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
@@ -29,17 +32,18 @@ func main() {
 	opts.CheckOrigin = checkOrigin
 	opts.WebsocketUpgrader = &upgrader
 
-	http.Handle("/connect/", sockjs.NewHandler(ConnectionEndpoint, opts, connectionHandler))
-	log.Println("Server started on port: 8085")
-	log.Fatal(http.ListenAndServe(":8085", nil))
+	r.PathPrefix(ConnectionEndpoint).Handler(sockjs.NewHandler(ConnectionEndpoint, opts, connectionHandler))
+
+	log.Println("Server started on port: 80")
+	log.Fatal(http.ListenAndServe(":8085", r))
 }
 
 func connectionHandler(s sockjs.Session) {
 	// We need to be notified when the client drops the connection.
 	// This reason we use channel for it.
-	isClosed := make(chan interface{})
+	done := make(chan interface{})
 
-	listener, err := stompserver.NewSockJSConnectionListenerFromExisting(s, isClosed)
+	listener, err := stompserver.NewSockJSConnectionListenerFromExisting(s, done)
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -49,31 +53,35 @@ func connectionHandler(s sockjs.Session) {
 	go newEndpoint.Start()
 
 	// Writes message to STOMP subscribe destination.
-	go func(newEndpoint Endpoint) {
+	go func(newEndpoint Endpoint, done chan interface{}) {
+		// Create a new ticker with a period of 0.5 second.
+		ticker := time.NewTicker(5000 * time.Millisecond)
 		for {
 			select {
-			case <-isClosed:
+			case <-done:
 				fmt.Println("Write message stopped due to client connection gone")
+				ticker.Stop()
 				return
-			default:
+			case <-ticker.C:
 				msg := []byte("repeated message")
 				newEndpoint.WriteMessage("/topic", msg)
 				fmt.Println("Outgoing message:", string(msg))
-				time.Sleep(5 * time.Second)
 			}
 		}
-	}(newEndpoint)
+	}(newEndpoint, done)
+
+	// Create a new ticker with a period of 0.5 second.
+	ticker := time.NewTicker(500 * time.Millisecond)
 
 	// Prints the message send via connection.
 	for {
 		select {
-		case <-isClosed:
+		case <-done:
+			ticker.Stop()
 			fmt.Println("Message send stopped due to client connection gone")
 			return
 		case msg := <-newEndpoint.ReadMessage():
 			fmt.Println("Incoming message:", string(msg))
-		default:
-			continue
 		}
 	}
 }
